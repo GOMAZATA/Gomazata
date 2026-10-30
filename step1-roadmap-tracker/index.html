@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アプリ開発ロードマップ</title>
+<style>
+  :root {
+    --bg: #eaf4fc; --card: #ffffff; --text: #1f2933; --muted: #6b7785;
+    --accent: #f5c518; --done: #2bb3a3; --line: #d8e2ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111820; --card: #1b2530; --text: #e6edf3; --muted: #93a1b0; --line: #2c3946; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: .9rem; }
+  .bar { height: 12px; background: var(--line); border-radius: 6px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--done); transition: width .3s; }
+  .progress { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin: 6px 0 20px; }
+  .step { background: var(--card); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08); border-left: 6px solid var(--accent); }
+  .step.done { border-left-color: var(--done); opacity: .75; }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .num { flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: #1f2933;
+    display: grid; place-items: center; font-weight: 700; }
+  .step.done .num { background: var(--done); color: #fff; }
+  .title { font-weight: 700; flex: 1; }
+  .time { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+  .tools { margin: 8px 0 0 42px; padding: 0; list-style: none; font-size: .85rem; color: var(--muted); }
+  label.check { display: flex; align-items: center; gap: 6px; margin: 10px 0 0 42px; font-size: .9rem; cursor: pointer; }
+  textarea { display: block; width: calc(100% - 42px); margin: 8px 0 0 42px; min-height: 48px; resize: vertical;
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: transparent; color: var(--text); font: inherit; font-size: .85rem; }
+  button { margin-top: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>未経験からアプリ公開までのロードマップ</h1>
+  <p class="sub">終わったらチェック。メモと進捗はこのブラウザに保存されます。</p>
+  <div class="bar"><div id="bar"></div></div>
+  <div class="progress"><span id="count"></span><span id="remaining"></span></div>
+  <div id="steps"></div>
+  <button id="reset">進捗をリセット</button>
+</main>
+<script>
+  const STEPS = [
+    { n: "1", title: "Claude Codeでローカルで動くWebツールを作る", days: 3, label: "3日",
+      tools: ["Claude Code — 日本語で頼むとAIが作る", "ローカル — まだ自分だけが使える"] },
+    { n: "2", title: "ネットに公開。データの保存と公開の流れを一周", days: 7, label: "1週間",
+      tools: ["Supabase — データの保管庫", "Vercel — ネットに出す置き場"] },
+    { n: "3", title: "守り方、設計、運用、自動化を学ぶ", days: 45, label: "1.5か月",
+      tools: ["セキュリティ・データ設計 — 守り方と、しまい方", "Git・CI/CD — 変更の記録と公開の自動化"] },
+    { n: "4", title: "Claude CodeとExpoでスマホアプリの開発手法を学ぶ", days: 21, label: "3週間",
+      tools: ["Expo — iPhoneとAndroid両方に出せる", "Apple開発者登録 — 年99ドル・手続き"] },
+    { n: "5", title: "審査のルールと規約、法律の基本も押さえる", days: 7, label: "1週間",
+      tools: ["審査ガイドライン — Appleが通す条件", "プライバシーポリシー — 集めるデータの説明"] },
+    { n: "6", title: "お金をかけずにSNSを運用して最初の1000人を集める設計", days: 14, label: "2週間",
+      tools: ["TikTok・Threads — 広告費0円で発信", "SNSの設計 — 毎日出す形を決める"] },
+    { n: "7", title: "Claude Codeでモックを作ってアプリの需要を確かめる", days: 7, label: "1週間",
+      tools: ["モック — 画面だけのハリボテ", "Claude Code — モックを作る"] },
+    { n: "8", title: "Claude CodeとCodexで自分のアプリを制作する", days: 28, label: "4週間",
+      tools: ["Claude Code — 作る", "Codex — もう1体のAIと分担"] },
+    { n: "宝", title: "公開後、ユーザーの意見を反映してアップデートする", days: 30, label: "30日",
+      tools: ["ユーザーの声 — レビュー・問い合わせ", "アップデート — 直して出し直す"] },
+  ];
+  const KEY = "gomazata-roadmap-v1";
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; }
+  }
+  function save(state) {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {}
+  }
+
+  let state = load();
+  const list = document.getElementById("steps");
+
+  function render() {
+    list.innerHTML = "";
+    STEPS.forEach((s) => {
+      const item = state[s.n] || {};
+      const el = document.createElement("section");
+      el.className = "step" + (item.done ? " done" : "");
+      el.innerHTML = `
+        <div class="head"><div class="num"></div><div class="title"></div><div class="time"></div></div>
+        <ul class="tools"></ul>
+        <label class="check"><input type="checkbox"> 完了した</label>
+        <textarea placeholder="メモ（作ったもの、つまずいたこと など）"></textarea>`;
+      el.querySelector(".num").textContent = s.n;
+      el.querySelector(".title").textContent = s.title;
+      el.querySelector(".time").textContent = "目安 " + s.label;
+      s.tools.forEach((t) => {
+        const li = document.createElement("li");
+        li.textContent = "・" + t;
+        el.querySelector(".tools").appendChild(li);
+      });
+      const box = el.querySelector("input");
+      box.checked = !!item.done;
+      box.addEventListener("change", () => {
+        state[s.n] = { ...state[s.n], done: box.checked };
+        save(state);
+        render();
+      });
+      const memo = el.querySelector("textarea");
+      memo.value = item.memo || "";
+      memo.addEventListener("input", () => {
+        state[s.n] = { ...state[s.n], memo: memo.value };
+        save(state);
+      });
+      list.appendChild(el);
+    });
+
+    const done = STEPS.filter((s) => state[s.n]?.done);
+    const total = STEPS.reduce((a, s) => a + s.days, 0);
+    const left = STEPS.filter((s) => !state[s.n]?.done).reduce((a, s) => a + s.days, 0);
+    document.getElementById("bar").style.width = (done.length / STEPS.length) * 100 + "%";
+    document.getElementById("count").textContent = `${done.length} / ${STEPS.length} 完了`;
+    document.getElementById("remaining").textContent = `残り目安 約${left}日（全体 約${total}日）`;
+  }
+
+  document.getElementById("reset").addEventListener("click", () => {
+    if (confirm("チェックとメモをすべて消しますか？")) { state = {}; save(state); render(); }
+  });
+
+  render();
+</script>
+</body>
+</html>
