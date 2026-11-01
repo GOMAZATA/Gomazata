@@ -43,8 +43,8 @@ def main(path):
         y = dps / price * 100
         if p.get("warning"):
             alerts.append(f"⚠️ {w['name']}({c}) {p['warning']}")
-        if prev is not None and LEVELS.index(lv) > LEVELS.index(prev) and lv in ("買い目安", "強い買い"):
-            alerts.append(f"🟢 {w['name']}({c}) が「{lv}」に入りました: 株価{price:,.0f}円・利回り{y:.2f}%（4%になる株価 {dps/0.04:,.0f}円）[{w['tier']}]")
+        if prev is not None and LEVELS.index(lv) > LEVELS.index(prev) and lv in ("接近", "買い目安", "強い買い"):
+            alerts.append(f"{'🟡' if lv=='接近' else '🟢'} {w['name']}({c}) が「{lv}」に入りました: 株価{price:,.0f}円・利回り{y:.2f}%（4%になる株価 {dps/0.04:,.0f}円）[{w['tier']}]")
         elif prev is None and lv == "強い買い":
             alerts.append(f"🟢 {w['name']}({c}) は初回から「強い買い」です: 株価{price:,.0f}円・利回り{y:.2f}%")
         chg = (price / float(w["ref_price"]) - 1) * 100
