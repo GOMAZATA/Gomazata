@@ -27,7 +27,9 @@ def main(path):
     wl = list(csv.DictReader(open(os.path.join(HERE, "watchlist.csv"), encoding="utf-8")))
     sp = os.path.join(HERE, "state.json")
     state = json.load(open(sp, encoding="utf-8"))
-    alerts, rows = [], []
+    hp = os.path.join(HERE, "holdings.csv")
+    hold = {h["code"]: h for h in csv.DictReader(open(hp, encoding="utf-8"))} if os.path.exists(hp) else {}
+    alerts, rows, hrows = [], [], []
     for w in wl:
         c = w["code"]; p = prices.get(c)
         dps = float(w["dps"])
@@ -41,10 +43,15 @@ def main(path):
         lv = level(price, dps)
         prev = state.get(c, {}).get("level")
         y = dps / price * 100
+        tag = f" [保有{hold[c]['shares']}株]" if c in hold else ""
         if p.get("warning"):
-            alerts.append(f"⚠️ {w['name']}({c}) {p['warning']}")
+            alerts.append(f"⚠️ {w['name']}({c}){tag} {p['warning']}")
+        if c in hold:
+            sh = int(hold[c]["shares"]); cost = hold[c].get("cost_per_share") or ""
+            yoc = f"{dps/float(cost)*100:.2f}%" if cost else "取得単価未記入"
+            hrows.append(f"| {c} | {w['name']} | {sh} | {price*sh:,.0f}円 | {dps*sh:,.0f}円 | {dps*sh*(1-0.20315):,.0f}円 | {yoc} | {lv} |")
         if prev is not None and LEVELS.index(lv) > LEVELS.index(prev) and lv in ("接近", "買い目安", "強い買い"):
-            alerts.append(f"{'🟡' if lv=='接近' else '🟢'} {w['name']}({c}) が「{lv}」に入りました: 株価{price:,.0f}円・利回り{y:.2f}%（4%になる株価 {dps/0.04:,.0f}円）[{w['tier']}]")
+            alerts.append(f"{'🟡' if lv=='接近' else '🟢'} {w['name']}({c}){tag} が「{lv}」に入りました: 株価{price:,.0f}円・利回り{y:.2f}%（4%になる株価 {dps/0.04:,.0f}円）[{w['tier']}]")
         elif prev is None and lv == "強い買い":
             alerts.append(f"🟢 {w['name']}({c}) は初回から「強い買い」です: 株価{price:,.0f}円・利回り{y:.2f}%")
         chg = (price / float(w["ref_price"]) - 1) * 100
@@ -52,6 +59,7 @@ def main(path):
         state[c] = {"level": lv, "price": price, "date": date}
     json.dump(state, open(sp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     rep = [f"# 高配当ウォッチ {date}", "", "## 通知"] + ([f"- {a}" for a in alerts] or ["- なし"]) + [
+        "", "## 保有銘柄", "| コード | 銘柄 | 株数 | 評価額 | 年間配当(税引前) | 年間配当(税引後20.315%) | 取得価格ベース利回り | 判定 |", "|---|---|---|---|---|---|---|---|"] + (hrows or ["| - | なし | | | | | | |"]) + [
         "", "## 一覧", "| コード | 銘柄 | 株価 | 予想配当 | 利回り | 4%になる株価 | 基準株価比 | 判定 |", "|---|---|---|---|---|---|---|---|"] + rows + [
         "", "判定：強い買い＝利回り4.5%以上／買い目安＝4%以上／接近＝4%になる株価の+3%以内。投資助言ではありません。"]
     os.makedirs(os.path.join(HERE, "reports"), exist_ok=True)
