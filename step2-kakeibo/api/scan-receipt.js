@@ -4,11 +4,18 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
 const anthropic = new Anthropic();
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = process.env;
+
+// ALLOWED_EMAILS に「a@example.com,b@example.com」のように書くと、その人だけが読み取りを使える。
+// 空のままなら、ログインできる人は全員使える（1日の回数上限はかかる）。
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || "")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
 
 const CATEGORIES = ["food", "daily", "move", "fun", "home", "other"];
 const MEDIA_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const MAX_BASE64_LENGTH = 4_000_000; // Vercel の本文上限 4.5MB に収める
+const MAX_BASE64_LENGTH = 3_000_000; // ブラウザで 1600px の JPEG に縮めてから送るので、ふつうは 1MB 未満
 
 const SCHEMA = {
   type: "object",
@@ -36,11 +43,30 @@ export default async function handler(req, res) {
     return;
   }
 
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    res.status(500).json({ error: "SUPABASE_URL と SUPABASE_ANON_KEY を Vercel の環境変数に設定してください。" });
+    return;
+  }
+
   // ログイン中の人だけが使える（知らない人に API 代を使われないように）
-  const token = (req.headers.authorization || "").replace(/^Bearer /, "");
-  const { data: auth, error: authError } = token ? await supabase.auth.getUser(token) : { data: null };
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!token) {
+    res.status(401).json({ error: "ログインし直してください。" });
+    return;
+  }
+  // この人のログイン情報で Supabase に話しかけるクライアント（RLS も本人として効く）
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: auth, error: authError } = await supabase.auth.getUser(token);
   if (authError || !auth?.user) {
     res.status(401).json({ error: "ログインし直してください。" });
+    return;
+  }
+  if (ALLOWED_EMAILS.length && !ALLOWED_EMAILS.includes((auth.user.email || "").toLowerCase())) {
+    res.status(403).json({ error: "このアカウントではレシート読み取りを使えません。" });
     return;
   }
 
@@ -49,12 +75,24 @@ export default async function handler(req, res) {
     res.status(400).json({ error: "画像が読み込めませんでした。撮り直してください。" });
     return;
   }
+  // 1人あたり1日の回数上限（数は supabase/schema.sql の claim_scan で決めている）
+  const { data: allowed, error: quotaError } = await supabase.rpc("claim_scan");
+  if (quotaError) {
+    console.error("claim_scan failed", quotaError.message);
+    res.status(500).json({ error: "読み取りの設定に問題があります（schema.sql を実行し直してください）。" });
+    return;
+  }
+  if (allowed !== true) {
+    res.status(429).json({ error: "今日の読み取り回数の上限に達しました。手で入力するか、明日また使ってください。" });
+    return;
+  }
+
   const todayText = /^\d{4}-\d{2}-\d{2}$/.test(today || "") ? today : new Date().toISOString().slice(0, 10);
 
   try {
     const response = await anthropic.beta.messages.create({
       model: "claude-opus-5-5",
-      max_tokens: 4000,
+      max_tokens: 1000,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
       output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
@@ -75,16 +113,22 @@ export default async function handler(req, res) {
       return;
     }
     const text = response.content.find((block) => block.type === "text")?.text;
-    const result = JSON.parse(text);
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch {
+      res.status(422).json({ error: "この画像は読み取れませんでした。手で入力してください。" });
+      return;
+    }
 
-    if (!result.is_receipt || result.total <= 0) {
+    if (!result.is_receipt || !Number.isInteger(result.total) || result.total <= 0 || result.total >= 100_000_000) {
       res.status(422).json({ error: "レシートの合計金額が見つかりませんでした。明るい場所で全体が入るように撮ってください。" });
       return;
     }
     res.status(200).json({
       total: result.total,
       date: /^\d{4}-\d{2}-\d{2}$/.test(result.date) ? result.date : "",
-      store: result.store.slice(0, 40),
+      store: String(result.store || "").slice(0, 40),
       category: CATEGORIES.includes(result.category) ? result.category : "other",
     });
   } catch (err) {

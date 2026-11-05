@@ -38,13 +38,14 @@
 1. https://vercel.com に GitHub アカウントでログイン。
 2. **Add New → Project** で、このリポジトリ（Gomazata）を選ぶ。
 3. **Root Directory** を `step2-kakeibo` に変更。
-4. **Environment Variables** に3つ入れる。
+4. **Environment Variables** に入れる（`ALLOWED_EMAILS` は任意だけどおすすめ）。
 
    | 名前 | 値 |
    |---|---|
    | `SUPABASE_URL` | 手順1でメモした Project URL |
    | `SUPABASE_ANON_KEY` | 手順1でメモした anon キー |
    | `ANTHROPIC_API_KEY` | 手順2で作った API キー |
+   | `ALLOWED_EMAILS` | レシート読み取りを使ってよいメールアドレス。複数ならカンマ区切り（例: `me@example.com,family@example.com`） |
 
 5. **Deploy** を押す。`https://〇〇.vercel.app` のような URL ができます。
 
@@ -56,6 +57,14 @@ Supabase の **Authentication → URL Configuration** を開いて:
 - **Redirect URLs** にも同じ URL を追加。
 
 これを忘れると、メールのリンクを押しても家計簿に戻ってきません。
+
+### 知らない人に使われないようにする（おすすめ）
+
+このままだと、URL を知った人は誰でもメールアドレスを入れてアカウントを作れます（他の人の明細は RLS で見えません）。
+自分と家族がログインできたら、Supabase の **Authentication → Sign In / Providers** で
+**Allow new users to sign up** をオフにすると、新しい人はアカウントを作れなくなります。
+
+レシート読み取りは、1人1日20回までに制限しています（`supabase/schema.sql` の `claim_scan`）。
 
 ## 5. 使ってみる
 

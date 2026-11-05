@@ -27,3 +27,41 @@ create policy "own rows: insert" on public.entries
 
 create policy "own rows: delete" on public.entries
   for delete to authenticated using (auth.uid() = user_id);
+
+-- ---------- レシート読み取りの回数上限 ----------
+-- 1人あたり1日（日本時間）に使える回数を数える表。中身は下の関数からしか触れない。
+create table if not exists public.scan_usage (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  day     date not null,
+  count   integer not null default 0,
+  primary key (user_id, day)
+);
+
+alter table public.scan_usage enable row level security;
+-- ポリシーを作らない = ブラウザから直接は読み書きできない
+revoke all on public.scan_usage from anon, authenticated;
+
+-- 1回分を数えて、上限以内なら true を返す。上限を変えたいときは 20 を書き換えて Run し直す。
+create or replace function public.claim_scan()
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  uid uuid := auth.uid();
+  n integer;
+begin
+  if uid is null then
+    return false;
+  end if;
+  insert into public.scan_usage (user_id, day, count)
+  values (uid, (now() at time zone 'Asia/Tokyo')::date, 1)
+  on conflict (user_id, day) do update set count = public.scan_usage.count + 1
+  returning count into n;
+  return n <= 20;
+end;
+$$;
+
+revoke all on function public.claim_scan() from public, anon;
+grant execute on function public.claim_scan() to authenticated;
